@@ -28,8 +28,8 @@ permissions:
         - 'https://9301f0ad7d4c.ngrok-free.app/integrations/jira/user-stats'
         - 'https://9301f0ad7d4c.ngrok-free.app/integrations/jira/recent-boosts'
         - 'https://9301f0ad7d4c.ngrok-free.app/integrations/jira/project-stats'
+        - 'https://9301f0ad7d4c.ngrok-free.app/integrations/jira/installation'
   scopes:
     - read:jira-work
     - write:jira-work
     - read:jira-user
-

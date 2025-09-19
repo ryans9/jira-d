@@ -1,29 +1,36 @@
 // Using global fetch instead of importing
+import api, { route } from '@forge/api';
 
 // Webhook handler for Jira events - similar to Slackbot
 export const handler = async (event, context) => {
   console.log('🚀 REWARDIFY WEBHOOK TRIGGERED!');
   console.log('🚀 Full Event:', JSON.stringify(event, null, 2));
   console.log('🚀 Full Context:', JSON.stringify(context, null, 2));
-  
+
   try {
     // Forge webhooks have a different structure
     const issue = event.issue;
     const user = event.user;
     const webhookEvent = event.webhookEvent || event.issue_event_type_name;
-    
-    console.log('📝 Parsed webhook data:', { 
-      issue: issue?.key, 
-      user: user?.displayName, 
+
+    console.log('📝 Parsed webhook data:', {
+      issue: issue?.key,
+      user: user?.displayName,
       event: webhookEvent,
       hasComment: !!event.comment,
       commentBody: event.comment?.body
     });
-    
+
+    // Check if this is an installation event
+    if (event.installation && event.installation.type === 'install') {
+      console.log('🚀 APP INSTALLATION DETECTED!');
+      await handleAppInstallation(event, context);
+    }
+
     // Always try to process any webhook event
     if (issue && user) {
       console.log('🎯 Processing webhook for issue:', issue.key);
-      
+
       // Check if this is a comment event
       if (event.comment) {
         console.log('💬 Comment detected, checking for boost triggers...');
@@ -35,7 +42,7 @@ export const handler = async (event, context) => {
     } else {
       console.log('⚠️ Missing issue or user data in webhook');
     }
-    
+
     return { success: true };
   } catch (error) {
     console.error('❌ Error processing webhook:', error);
@@ -47,15 +54,15 @@ export const handler = async (event, context) => {
 async function handleIssueUpdated(issue, user) {
   try {
     console.log('📝 Issue updated:', issue.key);
-    
+
     // Check if this is a status transition that should trigger a boost
     const changelog = issue.changelog;
     if (changelog && changelog.items) {
       for (const item of changelog.items) {
         if (item.field === 'status') {
           // Check if transitioned to "Done" or "Resolved"
-          if (item.toString && (item.toString.toLowerCase().includes('done') || 
-                               item.toString.toLowerCase().includes('resolved'))) {
+          if (item.toString && (item.toString.toLowerCase().includes('done') ||
+            item.toString.toLowerCase().includes('resolved'))) {
             console.log('✅ Issue completed, giving boost to:', user.displayName);
             await giveBoost(issue, user, 'issue_completed');
           }
@@ -71,15 +78,15 @@ async function handleIssueUpdated(issue, user) {
 async function handleCommentAdded(issue, user, comment) {
   try {
     console.log('💬 Comment added by:', user.displayName);
-    
+
     // Check if comment contains boost trigger (like Slackbot)
     const commentBody = comment.body || '';
     const boostTriggers = ['🚀', ':rocket:', '#boost', 'boost', 'reward'];
-    
-    const hasBoostTrigger = boostTriggers.some(trigger => 
+
+    const hasBoostTrigger = boostTriggers.some(trigger =>
       commentBody.toLowerCase().includes(trigger.toLowerCase())
     );
-    
+
     if (hasBoostTrigger) {
       console.log('🚀 Boost trigger detected in comment!');
       await giveBoost(issue, user, 'comment_boost', comment);
@@ -93,7 +100,7 @@ async function handleCommentAdded(issue, user, comment) {
 async function giveBoost(issue, user, triggerType, comment = null) {
   try {
     console.log('🎯 Giving boost to:', user.displayName, 'for:', triggerType);
-    
+
     // Prepare boost data for Rewardify backend
     const boostData = {
       provider: 'forge',
@@ -121,7 +128,7 @@ async function giveBoost(issue, user, triggerType, comment = null) {
         issueUrl: `${issue.self.replace('/rest/api/2/issue/', '/browse/')}`
       }
     };
-    
+
     // Send boost to Rewardify backend using global fetch
     const response = await global.fetch('https://9301f0ad7d4c.ngrok-free.app/integrations/jira/boosts', {
       method: 'POST',
@@ -131,17 +138,17 @@ async function giveBoost(issue, user, triggerType, comment = null) {
       },
       body: JSON.stringify(boostData)
     });
-    
+
     if (response.ok) {
       const result = await response.json();
       console.log('✅ Boost sent successfully:', result);
-      
+
       // Add comment to Jira issue about the boost (like Slackbot notifications)
       await addBoostComment(issue, user, boostData.message);
     } else {
       console.error('❌ Failed to send boost:', response.status, await response.text());
     }
-    
+
   } catch (error) {
     console.error('❌ Error giving boost:', error);
   }
@@ -163,7 +170,7 @@ function generateBoostMessage(triggerType, issue, comment) {
 async function addBoostComment(issue, user, message) {
   try {
     const jiraApiUrl = `https://api.atlassian.com/ex/jira/${issue.fields.project.key}/rest/api/2/issue/${issue.id}/comment`;
-    
+
     await global.fetch(jiraApiUrl, {
       method: 'POST',
       headers: {
@@ -184,9 +191,116 @@ async function addBoostComment(issue, user, message) {
         }
       })
     });
-    
+
     console.log('✅ Boost comment added to issue');
   } catch (error) {
     console.error('❌ Error adding boost comment:', error);
+  }
+}
+
+// Handle app installation - fetch real users from Jira
+async function handleAppInstallation(event, context) {
+  try {
+    console.log('🚀 Handling app installation...');
+    console.log('🌐 Cloud ID:', context.cloudId);
+    console.log('🔗 Base URL:', context.baseUrl);
+
+    // Fetch real users from Jira using Forge API
+    const users = await fetchRealJiraUsers(context.cloudId);
+
+    console.log('👥 Fetched real users during installation:', users.length, 'users found');
+    console.log('📋 Real users data:', JSON.stringify(users, null, 2));
+
+    // Send installation data with real users to backend
+    const installationData = {
+      cloudId: context.cloudId,
+      baseUrl: context.baseUrl,
+      installationTime: new Date().toISOString(),
+      installingUser: {
+        accountId: event.user?.accountId,
+        displayName: event.user?.displayName,
+        emailAddress: event.user?.emailAddress
+      },
+      account: {
+        id: event.account?.id,
+        name: event.account?.name,
+        type: event.account?.type
+      },
+      installation: {
+        id: event.installation?.id,
+        type: event.installation?.type,
+        permissions: event.installation?.permissions
+      },
+      context: {
+        cloudId: context.cloudId,
+        baseUrl: context.baseUrl,
+        environment: context.environment
+      },
+      workspaceUsers: {
+        totalCount: users.length,
+        users: users,
+        fetchedAt: new Date().toISOString(),
+        source: 'real_jira_api'
+      }
+    };
+
+    // Send to backend
+    const response = await global.fetch('https://9301f0ad7d4c.ngrok-free.app/integrations/jira/installation', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Integration-Token': 'default-token'
+      },
+      body: JSON.stringify(installationData)
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✅ Installation data with real users sent successfully:', result);
+    } else {
+      console.error('❌ Failed to send installation data:', response.status, await response.text());
+    }
+
+  } catch (error) {
+    console.error('❌ Error handling app installation:', error);
+  }
+}
+
+// Fetch real users from Jira using Forge API
+async function fetchRealJiraUsers(cloudId) {
+  try {
+    console.log('🔍 Fetching real users from Jira API...');
+
+    // Use Forge API to fetch users from Jira
+    const response = await api.asApp().requestJira(route`/rest/api/3/users/search`, {
+      headers: {
+        'Accept': 'application/json'
+      },
+      params: {
+        maxResults: 1000, // Get up to 1000 users
+        startAt: 0
+      }
+    });
+
+    const users = await response.json();
+    console.log('👥 Successfully fetched real users:', users.length, 'users found');
+
+    return users;
+  } catch (error) {
+    console.error('❌ Error fetching real users from Jira API:', error);
+
+    // Return mock users as fallback
+    const mockUsers = [
+      {
+        accountId: 'fallback-user-1',
+        displayName: 'Fallback User 1',
+        emailAddress: 'fallback1@example.com',
+        active: true,
+        accountType: 'atlassian'
+      }
+    ];
+
+    console.log('⚠️ Using fallback mock users due to API error');
+    return mockUsers;
   }
 }
