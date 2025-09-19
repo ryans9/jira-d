@@ -1,0 +1,35 @@
+modules:
+  jira:issuePanel:
+    - key: forge-rewardify-boost-panel
+      resource: main
+      resolver:
+        function: resolver
+      render: native
+      title: 🚀 Rewardify Boosts
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+app:
+  runtime:
+    name: nodejs22.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/148f729d-eda9-4539-9c68-9471f592a87f
+
+permissions:
+  external:
+    fetch:
+      backend:
+        - 'https://9301f0ad7d4c.ngrok-free.app/integrations/jira/boosts'
+        - 'https://9301f0ad7d4c.ngrok-free.app/integrations/jira/user-stats'
+        - 'https://9301f0ad7d4c.ngrok-free.app/integrations/jira/recent-boosts'
+        - 'https://9301f0ad7d4c.ngrok-free.app/integrations/jira/project-stats'
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - read:jira-user
+
