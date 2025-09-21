@@ -1,0 +1,174 @@
+import Resolver from '@forge/resolver';
+// import { handleInstalled, syncAllUsers } from './sync.js';
+
+// Simple resolver (no @forge/api)
+const resolver = new Resolver();
+
+
+resolver.define('getJiraUsers', async (req) => {
+    // Note: This resolver is not used anymore since we call Jira API directly from frontend
+    return {
+        success: false,
+        error: 'This resolver is deprecated. Use frontend direct API calls instead.'
+    };
+});
+
+// Sync all Jira users to backend
+resolver.define('syncUsersToBackend', async (req) => {
+    try {
+        console.log('🔄 Starting user sync to backend...');
+
+        // This will be called from frontend, so we can't call Jira API here
+        // The frontend will fetch users and send them to this resolver
+        const { users } = req.payload || {};
+
+        if (!users || !Array.isArray(users)) {
+            return {
+                success: false,
+                error: 'No users provided in payload'
+            };
+        }
+
+        console.log(`📊 Syncing ${users.length} users to backend...`);
+
+        // Send users to your backend
+        const response = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/sync-users', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Integration-Token': 'default-token'
+            },
+            body: JSON.stringify({
+                users: users,
+                syncTime: new Date().toISOString(),
+                source: 'forge-app'
+            })
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            console.log('✅ Users synced to backend successfully:', result);
+            return {
+                success: true,
+                message: `Successfully synced ${users.length} users to backend`,
+                data: result
+            };
+        } else {
+            const errorText = await response.text();
+            console.error('❌ Backend sync error:', response.status, errorText);
+            return {
+                success: false,
+                error: `Backend error: ${response.status} - ${errorText}`
+            };
+        }
+    } catch (error) {
+        console.error('❌ Error syncing users to backend:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+
+resolver.define('getBoostData', async () => ({
+    success: true,
+    data: { totalBoostsReceived: 5, tempBoosts: 10, boostsGivenToday: 2 },
+}));
+
+// Pull users from your backend (which the install trigger populated)
+// resolver.define('getJiraUsers', async (_req) => {
+//     try {
+//         const resp = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/user-stats', {
+//             method: 'GET',
+//             headers: { 'Accept': 'application/json', 'X-Integration-Token': 'default-token' }
+//         });
+//         if (!resp.ok) {
+//             const txt = await resp.text();
+//             return { success: false, error: `Backend error: ${resp.status} - ${txt}` };
+//         }
+//         const payload = await resp.json();
+//         // Expect payload like { totalCount, users, ... }
+//         return { success: true, data: payload };
+//     } catch (e) {
+//         return { success: false, error: e.message };
+//     }
+// });
+
+resolver.define('giveBoost', async (req) => {
+    const { recipientAccountId, recipientName, message } = req.payload || {};
+    const boostData = {
+        provider: 'forge',
+        integrationToken: 'default-token',
+        recipients: [{ accountId: recipientAccountId, displayName: recipientName }],
+        tempBoosts: 1,
+        message: message || '🚀 Boost sent!',
+        context: { triggerType: 'manual_boost' },
+    };
+
+    const resp = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/boosts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Integration-Token': 'default-token' },
+        body: JSON.stringify(boostData)
+    });
+
+    if (!resp.ok) {
+        const txt = await resp.text();
+        return { success: false, error: `Backend error: ${resp.status} - ${txt}` };
+    }
+    const data = await resp.json();
+    return { success: true, message: `Boost sent to ${recipientName}!`, data };
+});
+
+// Handle app installation event
+export async function handleInstalled(event, context) {
+    try {
+        console.log('🎉 App installed! Starting user sync...', {
+            cloudId: context.cloudId,
+            installationId: context.installation?.id
+        });
+
+        // Get cloudId from context
+        const cloudId = context.cloudId;
+        if (!cloudId) {
+            console.error('❌ No cloudId found in context');
+            return { success: false, error: 'No cloudId found' };
+        }
+
+        // Send installation data to backend
+        const installationData = {
+            cloudId: cloudId,
+            baseUrl: context.baseUrl,
+            installationTime: new Date().toISOString(),
+            installingUser: context.installingUser,
+            account: context.account,
+            installation: context.installation,
+            context: context
+        };
+
+        const response = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/installation', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Integration-Token': 'default-token'
+            },
+            body: JSON.stringify(installationData)
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            console.log('✅ Installation data sent to backend:', result);
+            return { success: true, data: result };
+        } else {
+            const errorText = await response.text();
+            console.error('❌ Backend installation error:', response.status, errorText);
+            return { success: false, error: `Backend error: ${response.status} - ${errorText}` };
+        }
+    } catch (error) {
+        console.error('❌ Error handling installation:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export const handler = resolver.getDefinitions();
+
