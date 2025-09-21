@@ -5,7 +5,7 @@ modules:
       resolver:
         function: resolver
       render: native
-      title: '🚀 Rewardify Boosts'
+      title: 'Rewardify Boosts🚀'
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
 
   # Lifecycle trigger: fires when app is installed on a site
@@ -17,6 +17,7 @@ modules:
     - key: on-issue-commented
       function: issue-commented-fn
       events:
+        - avi:jira:commented:issue
         - avi:jira:mentioned:comment
 
   # Define functions that the triggers and resolver will call
@@ -48,9 +49,12 @@ permissions:
   external:
     fetch:
       backend:
-        - address: https://53758b93165a.ngrok-free.app/integrations/jira/boosts
-        - address: https://53758b93165a.ngrok-free.app/integrations/jira/user-stats
-        - address: https://53758b93165a.ngrok-free.app/integrations/jira/recent-boosts
-        - address: https://53758b93165a.ngrok-free.app/integrations/jira/project-stats
-        - address: https://53758b93165a.ngrok-free.app/integrations/jira/installation
-        - address: https://53758b93165a.ngrok-free.app/integrations/jira/sync-users
+        - address: 53758b93165a.ngrok-free.app
+        - address: 4816b3cc4249.ngrok-free.app
+        - address: https://4816b3cc4249.ngrok-free.app
+        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/boosts
+        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/user-stats
+        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/recent-boosts
+        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/project-stats
+        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/installation
+        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/sync-users

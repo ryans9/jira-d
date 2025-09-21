@@ -31,8 +31,11 @@ resolver.define('syncUsersToBackend', async (req) => {
 
         console.log(`📊 Syncing ${users.length} users to backend...`);
 
-        // Send users to your backend
-        const response = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/sync-users', {
+        // Send users to your backend with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        const response = await global.fetch('https://4816b3cc4249.ngrok-free.app/integrations/jira/sync-users', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -42,8 +45,11 @@ resolver.define('syncUsersToBackend', async (req) => {
                 users: users,
                 syncTime: new Date().toISOString(),
                 source: 'forge-app'
-            })
+            }),
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
 
         if (response.ok) {
             const result = await response.json();
@@ -63,6 +69,12 @@ resolver.define('syncUsersToBackend', async (req) => {
         }
     } catch (error) {
         console.error('❌ Error syncing users to backend:', error);
+        if (error.name === 'AbortError') {
+            return {
+                success: false,
+                error: 'Request timed out - backend may be slow or unavailable'
+            };
+        }
         return {
             success: false,
             error: error.message
@@ -96,28 +108,53 @@ resolver.define('getBoostData', async () => ({
 // });
 
 resolver.define('giveBoost', async (req) => {
-    const { recipientAccountId, recipientName, message } = req.payload || {};
-    const boostData = {
-        provider: 'forge',
-        integrationToken: 'default-token',
-        recipients: [{ accountId: recipientAccountId, displayName: recipientName }],
-        tempBoosts: 1,
-        message: message || '🚀 Boost sent!',
-        context: { triggerType: 'manual_boost' },
-    };
+    try {
+        const { recipientAccountId, recipientName, message, cloudId, actor } = req.payload || {};
+        
+        // Validate required fields
+        if (!cloudId || !actor) {
+            return {
+                success: false,
+                error: 'Missing required fields: cloudId and actor must be provided from frontend'
+            };
+        }
+        
+        const boostData = {
+            provider: 'forge',
+            cloudId: cloudId,
+            actor: actor,
+            integrationToken: 'default-token',
+            recipients: [{ accountId: recipientAccountId, displayName: recipientName }],
+            tempBoosts: 1,
+            message: message || '🚀 Boost sent!',
+            context: { triggerType: 'manual_boost' },
+        };
 
-    const resp = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/boosts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Integration-Token': 'default-token' },
-        body: JSON.stringify(boostData)
-    });
+        // Add timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+        
+        const resp = await global.fetch('https://4816b3cc4249.ngrok-free.app/integrations/jira/boosts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Integration-Token': 'default-token' },
+            body: JSON.stringify(boostData),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
 
-    if (!resp.ok) {
-        const txt = await resp.text();
-        return { success: false, error: `Backend error: ${resp.status} - ${txt}` };
+        if (!resp.ok) {
+            const txt = await resp.text();
+            return { success: false, error: `Backend error: ${resp.status} - ${txt}` };
+        }
+        const data = await resp.json();
+        return { success: true, message: `Boost sent to ${recipientName}!`, data };
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            return { success: false, error: 'Request timed out - backend may be slow or unavailable' };
+        }
+        return { success: false, error: error.message };
     }
-    const data = await resp.json();
-    return { success: true, message: `Boost sent to ${recipientName}!`, data };
 });
 
 // Handle app installation event
@@ -146,7 +183,7 @@ export async function handleInstalled(event, context) {
             context: context
         };
 
-        const response = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/installation', {
+        const response = await global.fetch('https://4816b3cc4249.ngrok-free.app/integrations/jira/installation', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
