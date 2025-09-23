@@ -6,7 +6,6 @@ import ForgeReconciler, {
   Textfield,
   Heading,
   Spinner,
-  Badge,
   Stack,
   Box,
   Icon,
@@ -35,14 +34,52 @@ const gradientHeader = xcss({
 });
 
 const statCard = xcss({
-  backgroundColor: 'color.background.neutral.subtle',
+  background:
+    'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.00) 100%)',
   borderRadius: 'border.radius.100',
   padding: 'space.200',
   border: '1px solid',
   borderColor: 'color.border.subtle',
   textAlign: 'center',
   minWidth: '120px',
+  boxShadow: 'elevation.shadow.raised',
 });
+
+// Simple custom badge component (avoid internal Badge)
+const badgeContainer = xcss({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minWidth: '44px',
+  height: '44px',
+  paddingInline: 'space.250',
+  borderRadius: 'border.radius.1000',
+  fontWeight: 'font.weight.bold',
+});
+
+function StatBadge({ value, appearance = 'neutral' }) {
+  // Colorful gradients per appearance
+  let gradient = 'linear-gradient(135deg, #8e9eab 0%, #eef2f3 100%)';
+  if (appearance === 'added')
+    gradient = 'linear-gradient(135deg, #00c853 0%, #b2ff59 100%)';
+  if (appearance === 'removed')
+    gradient = 'linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)';
+  if (appearance === 'inprogress')
+    gradient = 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)';
+
+  const style = xcss({
+    background: gradient,
+    color: 'color.text.inverse',
+    boxShadow: '0 6px 16px rgba(0,0,0,0.25)',
+    border: '1px solid',
+    borderColor: 'color.border.inverse',
+  });
+  return (
+    <Box xcss={[badgeContainer, style]}>
+      <Text size='large'>{String(value ?? 0)}</Text>
+    </Box>
+  );
+}
 
 const boostButton = xcss({
   background: 'linear-gradient(45deg, #FF6B6B, #4ECDC4)',
@@ -83,7 +120,7 @@ const App = () => {
     lastSyncAt: null,
   });
   const [users, setUsers] = useState([]);
-  
+
   // Cache for boost data to avoid repeated API calls
   const [boostDataCache, setBoostDataCache] = useState(null);
   const [cacheTimestamp, setCacheTimestamp] = useState(null);
@@ -98,16 +135,39 @@ const App = () => {
     try {
       // Check cache first unless force refresh
       const now = Date.now();
-      if (!forceRefresh && boostDataCache && cacheTimestamp && (now - cacheTimestamp) < CACHE_DURATION) {
+      if (
+        !forceRefresh &&
+        boostDataCache &&
+        cacheTimestamp &&
+        now - cacheTimestamp < CACHE_DURATION
+      ) {
         setBoostData(boostDataCache);
         setMessage('✅ Boost data loaded from cache');
         return;
       }
 
       setLoading(true);
-      const data = await invoke('getBoostData');
-      setBoostData(data.data);
-      setBoostDataCache(data.data);
+      // Get current Jira user and cloudId
+      const meResp = await requestJira('/rest/api/3/myself', {
+        headers: { Accept: 'application/json' },
+      });
+      if (!meResp.ok) {
+        const txt = await meResp.text();
+        throw new Error(`Jira API error (myself): ${meResp.status} - ${txt}`);
+      }
+      const me = await meResp.json();
+      const accountId = me.accountId;
+      let cloudId = 'unknown-cloud';
+      if (typeof me.self === 'string') {
+        const m = me.self.match(/\/ex\/jira\/([^/]+)\//);
+        if (m) cloudId = m[1];
+      }
+
+      const resp = await invoke('getBoostData', { cloudId, accountId });
+      const mapped = resp?.data || resp; // resolver returns { success, data }
+      console.log('📊 Mapped boost stats:', mapped);
+      setBoostData(mapped);
+      setBoostDataCache(mapped);
       setCacheTimestamp(now);
       setMessage('✅ Boost data refreshed');
     } catch (e) {
@@ -148,6 +208,8 @@ const App = () => {
       setGivingBoost(false);
     }
   };
+
+  // Removed loadUserStats; relying on loadBoostData only
 
   // const WEBTRIGGER_URL =
   //   'https://148f729d-eda9-4539-9c68-9471f592a87f.hello.atlassian-dev.net/x1/o7BbgVfVsH04-eFtGP2w2zKhNDg';
@@ -292,17 +354,18 @@ const App = () => {
       setLoading(false);
     }
   };
-
+  console.log('Rendering App with boostData:', boostData);
   return (
     <Stack space='space.400'>
       {/* Beautiful Header */}
       <Box xcss={gradientHeader}>
-        <Stack space='space.200' alignInline='center'>
+        {/* <Stack space='space.200' alignInline='center'>
           <Heading size='large'>🚀 Rewardify Boosts</Heading>
           <Text size='medium' color='color.text.inverse'>
-            Give and track boosts just like Slack! Spread positivity and recognize great work.
+            Give and track boosts just like Slack! Spread positivity and
+            recognize great work.
           </Text>
-        </Stack>
+        </Stack> */}
       </Box>
 
       {/* Loading State */}
@@ -318,8 +381,20 @@ const App = () => {
       {/* Status Messages */}
       {message && (
         <SectionMessage
-          appearance={message.includes('✅') ? 'success' : message.includes('❌') ? 'error' : 'info'}
-          title={message.includes('✅') ? 'Success' : message.includes('❌') ? 'Error' : 'Info'}
+          appearance={
+            message.includes('✅')
+              ? 'success'
+              : message.includes('❌')
+              ? 'error'
+              : 'info'
+          }
+          title={
+            message.includes('✅')
+              ? 'Success'
+              : message.includes('❌')
+              ? 'Error'
+              : 'Info'
+          }
         >
           <Text>{message}</Text>
         </SectionMessage>
@@ -331,40 +406,42 @@ const App = () => {
           <Icon name='chart-line' size='medium' />
           <Text xcss={horizontal20}>Your Boost Stats</Text>
         </Heading>
-        
         <Stack space='space.200' direction='horizontal' alignBlock='center'>
           <Box xcss={statCard}>
             <Stack space='space.100' alignInline='center'>
               <Icon name='trophy' size='large' />
-              <Text size='small' color='color.text.subtle'>Received</Text>
-              <Badge
+              <Text size='small' color='color.text.subtle'>
+                Received
+              </Text>
+              <StatBadge
                 appearance='added'
-                text={boostData?.totalBoostsReceived || 0}
-                size='large'
+                value={boostData?.totalBoostsReceived ?? 0}
               />
             </Stack>
           </Box>
-          
+
           <Box xcss={statCard}>
             <Stack space='space.100' alignInline='center'>
               <Icon name='gift' size='large' />
-              <Text size='small' color='color.text.subtle'>Available</Text>
-              <Badge
+              <Text size='small' color='color.text.subtle'>
+                Available
+              </Text>
+              <StatBadge
                 appearance='inprogress'
-                text={boostData?.tempBoosts || 0}
-                size='large'
+                value={boostData?.tempBoosts ?? 0}
               />
             </Stack>
           </Box>
-          
+
           <Box xcss={statCard}>
             <Stack space='space.100' alignInline='center'>
               <Icon name='send' size='large' />
-              <Text size='small' color='color.text.subtle'>Given Today</Text>
-              <Badge
+              <Text size='small' color='color.text.subtle'>
+                Given Today
+              </Text>
+              <StatBadge
                 appearance='removed'
-                text={boostData?.boostsGivenToday || 0}
-                size='large'
+                value={boostData?.boostsGivenToday ?? 0}
               />
             </Stack>
           </Box>
@@ -372,12 +449,12 @@ const App = () => {
       </Box>
 
       {/* Give Boost Section */}
-      <Box xcss={cardStyle}>
+      {/* <Box xcss={cardStyle}>
         <Heading size='medium' marginBottom='space.300'>
           <Icon name='add-circle' size='medium' />
           <Text xcss={horizontal20}>Give a Boost</Text>
         </Heading>
-        
+
         <Stack space='space.300'>
           <Textfield
             label='Recipient Name'
@@ -404,10 +481,10 @@ const App = () => {
             <Text xcss={horizontal20}>🚀 Give Boost</Text>
           </LoadingButton>
         </Stack>
-      </Box>
+      </Box> */}
 
       {/* How to Earn Boosts */}
-      <Box xcss={featureCard}>
+      {/* <Box xcss={featureCard}>
         <Heading size='small' marginBottom='space.200'>
           <Icon name='lightbulb' size='small' />
           <Text xcss={horizontal20}>How to Earn Boosts</Text>
@@ -432,32 +509,28 @@ const App = () => {
             </Stack>
           </Box>
         </Stack>
-      </Box>
+      </Box> */}
 
       {/* User Management Section */}
       <Box xcss={cardStyle}>
-        <Heading size='medium' marginBottom='space.300'>
+        {/* <Heading size='medium' marginBottom='space.300'>
           <Icon name='people' size='medium' />
           <Text xcss={horizontal20}>User Management</Text>
-        </Heading>
-        
+        </Heading> */}
+
         <Stack space='space.200'>
-          <Button 
-            appearance='secondary' 
+          {/* <Button
+            appearance='secondary'
             onClick={fetchJiraUsersDirectly}
             isFullWidth
           >
             <Icon name='refresh' size='small' />
             <Text xcss={horizontal20}>Fetch Jira Users</Text>
-          </Button>
-          
-          <Button 
-            appearance='primary' 
-            onClick={syncUsersToBackend}
-            isFullWidth
-          >
+          </Button> */}
+
+          <Button appearance='primary' onClick={syncUsersToBackend} isFullWidth>
             <Icon name='upload' size='small' />
-            <Text xcss={horizontal20}>Sync Users to Backend</Text>
+            <Text xcss={horizontal20}>Sync Users</Text>
           </Button>
         </Stack>
 
@@ -471,10 +544,17 @@ const App = () => {
             <Stack space='space.100'>
               {users.slice(0, 5).map((u) => (
                 <Box key={u.accountId} xcss={featureCard}>
-                  <Stack space='space.100' direction='horizontal' alignBlock='center'>
+                  <Stack
+                    space='space.100'
+                    direction='horizontal'
+                    alignBlock='center'
+                  >
                     <Icon name='person' size='small' />
                     <Text size='small'>{u.displayName}</Text>
-                    <Lozenge appearance='neutral' text={u.accountId.slice(0, 8)} />
+                    <Lozenge
+                      appearance='neutral'
+                      text={u.accountId.slice(0, 8)}
+                    />
                   </Stack>
                 </Box>
               ))}
@@ -490,8 +570,8 @@ const App = () => {
 
       {/* Refresh Button */}
       <Box xcss={vertical20}>
-        <Button 
-          appearance='primary' 
+        <Button
+          appearance='primary'
           onClick={() => loadBoostData(true)}
           isFullWidth
         >

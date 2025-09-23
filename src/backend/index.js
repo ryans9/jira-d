@@ -34,8 +34,8 @@ resolver.define('syncUsersToBackend', async (req) => {
         // Send users to your backend with timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-        
-        const response = await global.fetch('https://4816b3cc4249.ngrok-free.app/integrations/jira/sync-users', {
+
+        const response = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/sync-users', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -48,7 +48,7 @@ resolver.define('syncUsersToBackend', async (req) => {
             }),
             signal: controller.signal
         });
-        
+
         clearTimeout(timeoutId);
 
         if (response.ok) {
@@ -83,34 +83,46 @@ resolver.define('syncUsersToBackend', async (req) => {
 });
 
 
-resolver.define('getBoostData', async () => ({
-    success: true,
-    data: { totalBoostsReceived: 5, tempBoosts: 10, boostsGivenToday: 2 },
-}));
+resolver.define('getBoostData', async (req) => {
+    try {
+        const { cloudId, accountId } = req.payload || {};
+        if (!cloudId || !accountId) {
+            return { success: false, error: 'Missing cloudId or accountId' };
+        }
 
-// Pull users from your backend (which the install trigger populated)
-// resolver.define('getJiraUsers', async (_req) => {
-//     try {
-//         const resp = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/user-stats', {
-//             method: 'GET',
-//             headers: { 'Accept': 'application/json', 'X-Integration-Token': 'default-token' }
-//         });
-//         if (!resp.ok) {
-//             const txt = await resp.text();
-//             return { success: false, error: `Backend error: ${resp.status} - ${txt}` };
-//         }
-//         const payload = await resp.json();
-//         // Expect payload like { totalCount, users, ... }
-//         return { success: true, data: payload };
-//     } catch (e) {
-//         return { success: false, error: e.message };
-//     }
-// });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const url = `https://53758b93165a.ngrok-free.app/integrations/jira/user-stats?cloudId=${encodeURIComponent(cloudId)}&accountId=${encodeURIComponent(accountId)}`;
+        const resp = await global.fetch(url, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json', 'X-Integration-Token': 'default-token' },
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (!resp.ok) {
+            const txt = await resp.text();
+            return { success: false, error: `Backend error: ${resp.status} - ${txt}` };
+        }
+        const data = await resp.json();
+        // Map backend stats into panel fields
+        const mapped = {
+            totalBoostsReceived: data?.data?.totalBoostsReceived ?? 0,
+            tempBoosts: data?.data?.boostsLeft ?? 0,
+            boostsGivenToday: data?.data?.givenToday ?? 0,
+        };
+        return { success: true, data: mapped };
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            return { success: false, error: 'Request timed out' };
+        }
+        return { success: false, error: e.message };
+    }
+});
 
 resolver.define('giveBoost', async (req) => {
     try {
         const { recipientAccountId, recipientName, message, cloudId, actor } = req.payload || {};
-        
+
         // Validate required fields
         if (!cloudId || !actor) {
             return {
@@ -118,7 +130,7 @@ resolver.define('giveBoost', async (req) => {
                 error: 'Missing required fields: cloudId and actor must be provided from frontend'
             };
         }
-        
+
         const boostData = {
             provider: 'forge',
             cloudId: cloudId,
@@ -133,14 +145,14 @@ resolver.define('giveBoost', async (req) => {
         // Add timeout to prevent hanging
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-        
-        const resp = await global.fetch('https://4816b3cc4249.ngrok-free.app/integrations/jira/boosts', {
+
+        const resp = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/boosts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Integration-Token': 'default-token' },
             body: JSON.stringify(boostData),
             signal: controller.signal
         });
-        
+
         clearTimeout(timeoutId);
 
         if (!resp.ok) {
@@ -152,6 +164,40 @@ resolver.define('giveBoost', async (req) => {
     } catch (error) {
         if (error.name === 'AbortError') {
             return { success: false, error: 'Request timed out - backend may be slow or unavailable' };
+        }
+        return { success: false, error: error.message };
+    }
+});
+
+// Fetch "Your Boost Stats" for the current Jira user
+resolver.define('getUserStats', async (req) => {
+    try {
+        const { cloudId, accountId } = req.payload || {};
+        if (!cloudId || !accountId) {
+            return { success: false, error: 'Missing required fields: cloudId and accountId' };
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        const url = `https://53758b93165a.ngrok-free.app/integrations/jira/user-stats?cloudId=${encodeURIComponent(cloudId)}&accountId=${encodeURIComponent(accountId)}`;
+        const resp = await global.fetch(url, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json', 'X-Integration-Token': 'default-token' },
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!resp.ok) {
+            const txt = await resp.text();
+            return { success: false, error: `Backend error: ${resp.status} - ${txt}` };
+        }
+        const data = await resp.json();
+        return data;
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            return { success: false, error: 'Request timed out' };
         }
         return { success: false, error: error.message };
     }
@@ -183,7 +229,7 @@ export async function handleInstalled(event, context) {
             context: context
         };
 
-        const response = await global.fetch('https://4816b3cc4249.ngrok-free.app/integrations/jira/installation', {
+        const response = await global.fetch('https://53758b93165a.ngrok-free.app/integrations/jira/installation', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

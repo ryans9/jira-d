@@ -14,10 +14,9 @@ modules:
       function: installed-sync-fn
       events:
         - avi:forge:installed:app
-    - key: on-issue-commented
-      function: issue-commented-fn
+    - key: on-comment-mentioned
+      function: comment-mentioned-fn
       events:
-        - avi:jira:commented:issue
         - avi:jira:mentioned:comment
 
   # Define functions that the triggers and resolver will call
@@ -26,7 +25,7 @@ modules:
       handler: index.handler
     - key: installed-sync-fn
       handler: index.handleInstalled
-    - key: issue-commented-fn
+    - key: comment-mentioned-fn
       handler: index.onIssueCommented
 
 resources:
@@ -49,12 +48,11 @@ permissions:
   external:
     fetch:
       backend:
-        - address: 53758b93165a.ngrok-free.app
         - address: 4816b3cc4249.ngrok-free.app
-        - address: https://4816b3cc4249.ngrok-free.app
-        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/boosts
-        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/user-stats
-        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/recent-boosts
-        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/project-stats
-        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/installation
-        - address: https://4816b3cc4249.ngrok-free.app/integrations/jira/sync-users
+        - address: https://53758b93165a.ngrok-free.app
+        - address: https://53758b93165a.ngrok-free.app/integrations/jira/boosts
+        - address: https://53758b93165a.ngrok-free.app/integrations/jira/user-stats
+        - address: https://53758b93165a.ngrok-free.app/integrations/jira/recent-boosts
+        - address: https://53758b93165a.ngrok-free.app/integrations/jira/project-stats
+        - address: https://53758b93165a.ngrok-free.app/integrations/jira/installation
+        - address: https://53758b93165a.ngrok-free.app/integrations/jira/sync-users
